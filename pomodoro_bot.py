@@ -42,7 +42,8 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
         try:
             if is_channel(arguments[1]):
                 connection.join(arguments[1])
-                self._channel_table[arguments[1]] = Pomodoro()
+                self._channel_table[arguments[1]] = Pomodoro(connection,
+                                                             arguments[1])
             else:
                 connection.notice(event.source.nick,
                                   "'" + arguments[1] + "' is not a channel.")
@@ -125,13 +126,16 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
             return False
         else:
             session.initialize_pomodoro(mode)
-            self._connection.notice(self._channel,
+            modes = {"fast":(25,5), "long":(50,10), "lazy":(45,15)}
+            connection.notice(event.target,
                                     event.source.nick + " has started a new "
-                                    + mode + " (" + str(self._modes[mode][0]) + ":"
-                                    + str(self._modes[mode][1]) + ") " +
-                                    + "pomodoro session, if you would like to join in type "
-                                    + "'.register <the thing you are working on>. Example:"
-                                    + " .register Programming a Pomodoro IRC Bot.")
+                                     + mode + " (" + str(modes[mode][0]) + ":"
+                                     + str(modes[mode][1]) + ") " 
+                                     + "pomodoro session, if you would like to join in type "
+                                     + "'.register <the thing you are working on>'. Example:"
+                                     + " .register Programming a Pomodoro IRC Bot.")
+            connection.notice(event.target,
+                              "The session will start in five minutes.")
 
     def do_pub_register(self, connection, event):
         """Register to work in the next pomodoro session."""
@@ -172,7 +176,7 @@ class Pomodoro():
         mode = mode.lower()
         self._pomodoro_session = "work"
         self._votes = {}
-        self.execute_delayed(delay, self.pomodoro_start, (mode,))
+        self._connection.execute_delayed(delay, self.pomodoro_start, (mode,))
         
     def pomodoro_start(self, mode):
         """Start a pomodoro session with the mode <mode>, mode is one of:
@@ -182,10 +186,11 @@ class Pomodoro():
         Lazy: A 45/15 minutes worked/break time split."""
         now = time.gmtime()
         work_period = self._modes[mode][0]
-        overflow = True if (now.tm_min + work_period) % 60 < now.tm_min else False
-        above_ten = True if (now.tm_min + work_period) % 60 > 10 else False
+        now_to_end = (now.tm_min + work_period)
+        overflow = True if now_to_end % 60 < now.tm_min else False
+        end_above_ten = True if now_to_end % 60 > 10 else False
         self._votes = {}
-        if overflow and above_ten:
+        if overflow and end_above_ten:
             self._connection.notice(self._channel,
                                     "Pomodoro starts at :" + str(now.tm_min)
                                     + " and ends at :" +
@@ -202,7 +207,12 @@ class Pomodoro():
                                     "Pomodoro starts at :" + str(now.tm_min)
                                     + " and ends at :" + str(now.tm_min + work_period)
                                     + ".")
-        self.execute_delayed(work_period * 60, self.pomodoro_break, (mode,))
+        self._connection.notice(self._channel,
+                                "Pomodoro statrs at " + start + " and ends at "
+                                + end)
+        self._connection.execute_delayed(work_period * 60,
+                                         self.pomodoro_break,
+                                         (mode,))
 
     def pomodoro_break(self, mode):
         """Take a break from working of the length specified by the mode."""
@@ -215,9 +225,10 @@ class Pomodoro():
                                 + " minutes.")
         self._current_users.clear()
         self._pomodoro_session = "break"
-        self.execute_delayed(int(break_period) * 60,
-                             lambda users: self.pomodoro_start(mode) if users else None,
-                             (self._current_users,))
+        callback = lambda users: self.pomodoro_start(mode) if users else None
+        self._connection.execute_delayed(int(break_period) * 60,
+                                         callback,
+                                         (self._current_users,))
 
     def pomodoro_stop(self):
         """Set the current users to none so that the pomodoro stops after the
