@@ -82,16 +82,56 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
         Usage: pomodoro <mode>, where mode is one of [fast, long, lazy].
         Example: pomodoro fast"""
         arguments = event.arguments[0].split()
+        try:
+            mode = arguments[1]
+        except IndexError:
+            connection.notice(event.source.nick,
+                              "Usage: pomodoro <mode>, where mode is one of"
+                              + " [fast, long, lazy]." + " Example: pomodoro fast")
+            return False
         session = self._channel_table[event.target]
-        if session.session_running() and not session.votes:
+        if session.session_running() == "break" and not session.votes:
             connection.notice(event.target,
                               event.source.nick + " has requested to change the" +
                               " current setting from " +
                               self._channel_table[event.target].mode + "to " +
-                              arguments[1] + ".")
+                              mode + ".")
             connection.notice(event.target,
                               "If you would like to back this change type "
-                              + "'pomodoro " + arguments[1]  
+                              + "'pomodoro " + mode + "' otherwise stay"
+                              + " silent or type pomodoro <mode> to vote for a"
+                              + " different one.")
+            connection.notice(event.target,
+                              "(Keep in mind you must be registered for the current"
+                              + " pomodoro to vote against it.)")
+        elif session.session_running() == "break":
+            session.vote(mode, event.source.nick)
+            connection.notice(event.source.nick,
+                              "Your vote has been cast.")
+            votes = session.votes()
+            users = session.users()
+            for mode in votes:
+                if len(votes[mode]) >= len(users):
+                    self._channel_table[event.target].pomodoro_stop()
+                    self._channel_table[event.target] = Pomodoro(connection,
+                                                                 event.target)
+                    session = self._channel_table[event.target]
+                    session.initialize_pomodoro(mode, delay=0)
+                    break
+        elif session.session_running() == "work":
+            connection.notice(event.source.nick,
+                              "You can't vote to change modes while a work"
+                              + " session is running.")
+            return False
+        else:
+            session.initialize_pomodoro(mode)
+            self._connection.notice(self._channel,
+                                    event.source.nick + " has started a new "
+                                    + mode + " (" + str(self._modes[mode][0]) + ":"
+                                    + str(self._modes[mode][1]) + ") " +
+                                    + "pomodoro session, if you would like to join in type "
+                                    + "'.register <the thing you are working on>. Example:"
+                                    + " .register Programming a Pomodoro IRC Bot.")
 
     def do_pub_register(self, connection, event):
         """Register to work in the next pomodoro session."""
@@ -119,10 +159,10 @@ class Pomodoro():
         self._channel = channel
         self._current_users = {}
         self._pomodoro_session = False
-        self._votes = None
+        self._votes = {}
         self._modes = {"fast":(25,5), "long":(50,10), "lazy":(45,15)}
 
-    def initialize_pomodoro(self, event, mode):
+    def initialize_pomodoro(self, mode, delay=300):
         """Begin a registration period for a new pomodoro with the mode <mode>, 
         mode is one of:
 
@@ -130,16 +170,9 @@ class Pomodoro():
         Long: A 50-10 minutes worked/break time split.
         Lazy: A 45/15 minutes worked/break time split."""
         mode = mode.lower()
-        self._connection.notice(self._channel,
-                                event.source.nick + " has started a new "
-                                + mode + " (" + str(self._modes[mode][0]) + ":"
-                                + str(self._modes[mode][1]) + ") " +
-                                + "pomodoro session, if you would like to join in type "
-                                + "'.register <the thing you are working on>. Example:"
-                                + " .register Programming a Pomodoro IRC Bot.")
-        self._pomodoro_session = True
-        self._votes = None
-        self.execute_delayed(300, self.pomodoro_start, (mode,))
+        self._pomodoro_session = "work"
+        self._votes = {}
+        self.execute_delayed(delay, self.pomodoro_start, (mode,))
         
     def pomodoro_start(self, mode):
         """Start a pomodoro session with the mode <mode>, mode is one of:
@@ -151,6 +184,7 @@ class Pomodoro():
         work_period = self._modes[mode][0]
         overflow = True if (now.tm_min + work_period) % 60 < now.tm_min else False
         above_ten = True if (now.tm_min + work_period) % 60 > 10 else False
+        self._votes = {}
         if overflow and above_ten:
             self._connection.notice(self._channel,
                                     "Pomodoro starts at :" + str(now.tm_min)
@@ -180,9 +214,15 @@ class Pomodoro():
                                 + " between now and the next " + break_period
                                 + " minutes.")
         self._current_users.clear()
+        self._pomodoro_session = "break"
         self.execute_delayed(int(break_period) * 60,
                              lambda users: self.pomodoro_start(mode) if users else None,
                              (self._current_users,))
+
+    def pomodoro_stop(self):
+        """Set the current users to none so that the pomodoro stops after the
+        current break."""
+        self._current_users = {}
 
     def register_nick(self, nickname, goal):
         """Register a nickname for the current Pomodoro Session. Goal is the thing
@@ -206,8 +246,17 @@ class Pomodoro():
         else:
             return False
 
+    def users(self):
+        """Return the current users."""
+        return self._current_users
+
     def session_running(self):
-        """Return whether or not there is currently a session running."""
+        """Return whether or not there is currently a session running.
+
+        This function can return one of three values, False, in which case there
+        is no session running at all, "work" in which case a work session is 
+        running, and "break" which means that a session is running but it is
+        currently in the break period."""
         return self._pomodoro_session
 
     class RegistrationError(Exception):
