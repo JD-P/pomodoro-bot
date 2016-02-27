@@ -126,7 +126,7 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
             return False
         else:
             session.initialize_pomodoro(mode)
-            modes = {"fast":(25,5), "long":(50,10), "lazy":(45,15)}
+            modes = {"fast":(25,5), "long":(50,10), "lazy":(45,15), "test":(1,1)}
             connection.notice(event.target,
                                     event.source.nick + " has started a new "
                                      + mode + " (" + str(modes[mode][0]) + ":"
@@ -164,7 +164,7 @@ class Pomodoro():
         self._current_users = {}
         self._pomodoro_session = False
         self._votes = {}
-        self._modes = {"fast":(25,5), "long":(50,10), "lazy":(45,15)}
+        self._modes = {"fast":(25,5), "long":(50,10), "lazy":(45,15), "test":(1,1)}
 
     def initialize_pomodoro(self, mode, delay=300):
         """Begin a registration period for a new pomodoro with the mode <mode>, 
@@ -191,7 +191,7 @@ class Pomodoro():
         start_above_ten = True if now.tm_min < 10 else False
         end_above_ten = True if now_to_end % 60 > 10 else False
         self._votes = {}
-        start = ":" + now.tm_min if start_above_ten else ":0" + now.tm_min
+        start = ":" + str(now.tm_min) if start_above_ten else ":0" + str(now.tm_min)
         if overflow and end_above_ten:
             end = ":" + str(now_to_end % 60) + " of the next hour."
         elif overflow:
@@ -218,8 +218,15 @@ class Pomodoro():
                                 + " minutes.")
         self._current_users.clear()
         self._pomodoro_session = "break"
-        callback = (lambda users:
-                    self.pomodoro_start(mode) if users else self._pomodoro_session = False)
+        
+        def callback(users):
+            """Registration callback closure that either iterates the pomodoro
+            loop or cleans up if nobody registers."""
+            if users:
+                self.pomodoro_start(mode)
+            else:
+                self._pomodoro_session = False
+            
         self._connection.execute_delayed(int(break_period) * 60,
                                          callback,
                                          (self._current_users,))
