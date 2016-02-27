@@ -159,6 +159,17 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
                               + "one with the 'pomodoro' command. Example: " +
                               "pomodoro fast.")
 
+    def do_pub_registered(self, connection, event):
+        """Send a list of registered users and what they're working on to the
+        nick requesting the list.
+
+        Usage: .registered
+        Example: .registered"""
+        users = self._channel_table[event.target].users()
+        for user in users:
+            connection.notice(event.source.nick,
+                              str(user) + " | " + str(users[user]))
+
     def do_pub_help(self, connection, event):
         """Send a help message to the user who requested it.
 
