@@ -188,27 +188,20 @@ class Pomodoro():
         work_period = self._modes[mode][0]
         now_to_end = (now.tm_min + work_period)
         overflow = True if now_to_end % 60 < now.tm_min else False
+        start_above_ten = True if now.tm_min < 10 else False
         end_above_ten = True if now_to_end % 60 > 10 else False
         self._votes = {}
+        start = ":" + now.tm_min if start_above_ten else ":0" + now.tm_min
         if overflow and end_above_ten:
-            self._connection.notice(self._channel,
-                                    "Pomodoro starts at :" + str(now.tm_min)
-                                    + " and ends at :" +
-                                    str((now.tm_min + work_period) % 60)
-                                    + " of the next hour.")
+            end = ":" + str(now_to_end % 60) + " of the next hour."
         elif overflow:
-            self._connection.notice(self._channel,
-                                    "Pomodoro starts at :" + str(now.tm_min)
-                                    + " and ends at :0" +
-                                    str((now.tm_min + work_period) % 60)
-                                    + " of the next hour.")
+            end = ":0" + str(now_to_end % 60) + " of the next hour."
+        elif end_above_ten:
+            end = ":" + str(now_to_end) + "."
         else:
-            self._connection.notice(self._channel,
-                                    "Pomodoro starts at :" + str(now.tm_min)
-                                    + " and ends at :" + str(now.tm_min + work_period)
-                                    + ".")
+            end = ":0" + str(now_to_end) + "."
         self._connection.notice(self._channel,
-                                "Pomodoro statrs at " + start + " and ends at "
+                                "Pomodoro starts at " + start + " and ends at "
                                 + end)
         self._connection.execute_delayed(work_period * 60,
                                          self.pomodoro_break,
@@ -225,7 +218,8 @@ class Pomodoro():
                                 + " minutes.")
         self._current_users.clear()
         self._pomodoro_session = "break"
-        callback = lambda users: self.pomodoro_start(mode) if users else None
+        callback = (lambda users:
+                    self.pomodoro_start(mode) if users else self._pomodoro_session = False)
         self._connection.execute_delayed(int(break_period) * 60,
                                          callback,
                                          (self._current_users,))
