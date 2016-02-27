@@ -4,6 +4,7 @@ from irc.client import is_channel
 from collections import namedtuple
 import time
 import argparse
+from inspect import getdoc
 
 class PomodoroBot(irc.bot.SingleServerIRCBot):
     """The pomodoro bot sits in a channel and waits for someone to start a pomodoro.
@@ -80,15 +81,15 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
         """Start a pomodoro if one isn't already running, if one is call for a 
         vote to change modes.
 
-        Usage: pomodoro <mode>, where mode is one of [fast, long, lazy].
-        Example: pomodoro fast"""
+        Usage: .pomodoro <mode>, where mode is one of [fast, long, lazy].
+        Example: .pomodoro fast"""
         arguments = event.arguments[0].split()
         try:
             mode = arguments[1]
         except IndexError:
             connection.notice(event.source.nick,
                               "Usage: pomodoro <mode>, where mode is one of"
-                              + " [fast, long, lazy]." + " Example: pomodoro fast")
+                              + " [fast, long, lazy]." + " Example: .pomodoro fast")
             return False
         session = self._channel_table[event.target]
         if session.session_running() == "break" and not session.votes:
@@ -138,7 +139,10 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
                               "The session will start in five minutes.")
 
     def do_pub_register(self, connection, event):
-        """Register to work in the next pomodoro session."""
+        """Register to work in the next pomodoro session.
+
+        Usage: .register <thing you're working on>
+        Example: .register I'm writing a pomodoro bot."""
         arguments = event.arguments[0].split()
         if self._channel_table[event.target].session_running():
             try:
@@ -154,6 +158,40 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
                               "There is no session running. You can start a new "
                               + "one with the 'pomodoro' command. Example: " +
                               "pomodoro fast.")
+
+    def do_pub_help(self, connection, event):
+        """Send a help message to the user who requested it.
+
+        Usage: .help, .help <command>
+        Example: .help help"""
+        arguments = event.arguments[0].split()
+        help_msg = ["The PomodoroBot has the following commands:",
+                    "pomodoro register registered help",
+                    " ",
+                    "To get more information about a command, type:",
+                    " .help <command name>",
+                    "Example:",
+                    " .help help"]
+        try:
+            if hasattr(self, "do_pub_" + arguments[1]):
+                doc = getdoc(getattr(self, "do_pub_" + arguments[1]))
+                if doc:
+                    serialized_doc = doc.split("\n")
+                else:
+                    serialized_doc = ""
+                for line in serialized_doc:
+                    connection.notice(event.source.nick,
+                                      line)
+            else:
+                for line in help_msg:
+                    connection.notice(event.source.nick,
+                                      line)
+        except IndexError:
+            for line in help_msg:
+                connection.notice(event.source.nick,
+                                  line)
+            
+        
         
 class Pomodoro():
     """Pomodoro channel data structure. Keeps track of who is currently 
