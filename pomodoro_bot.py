@@ -211,7 +211,7 @@ class Pomodoro():
         """Take a break from working of the length specified by the mode."""
         break_period = str(self._modes[mode][1])
         self._connection.notice(self._channel,
-                                break_period + "minute break.")
+                                break_period + " minute break.")
         self._connection.notice(self._channel,
                                 "Please register for the next pomodoro sometime"
                                 + " between now and the next " + break_period
