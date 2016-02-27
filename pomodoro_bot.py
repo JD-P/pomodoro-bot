@@ -188,8 +188,8 @@ class Pomodoro():
         work_period = self._modes[mode][0]
         now_to_end = (now.tm_min + work_period)
         overflow = True if now_to_end % 60 < now.tm_min else False
-        start_above_ten = True if now.tm_min < 10 else False
-        end_above_ten = True if now_to_end % 60 > 10 else False
+        start_above_ten = True if now.tm_min >= 10 else False
+        end_above_ten = True if now_to_end % 60 >= 10 else False
         self._votes = {}
         start = ":" + str(now.tm_min) if start_above_ten else ":0" + str(now.tm_min)
         if overflow and end_above_ten:
