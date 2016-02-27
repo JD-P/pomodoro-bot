@@ -43,8 +43,9 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
         try:
             if is_channel(arguments[1]):
                 connection.join(arguments[1])
-                self._channel_table[arguments[1]] = Pomodoro(connection,
-                                                             arguments[1])
+                self._channel_table[arguments[1].lower()] = Pomodoro(
+                    connection,
+                    arguments[1].lower())
             else:
                 connection.notice(event.source.nick,
                                   "'" + arguments[1] + "' is not a channel.")
@@ -144,10 +145,13 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
         Usage: .register <thing you're working on>
         Example: .register I'm writing a pomodoro bot."""
         arguments = event.arguments[0].split()
+        goal = ""
+        for word in arguments[1:]:
+            goal = goal + " " + word
         if self._channel_table[event.target].session_running():
             try:
                 self._channel_table[event.target].register_nick(event.source.nick,
-                                                                arguments[1])
+                                                                goal)
             except IndexError:
                 self._channel_table[event.target].register_nick(event.source.nick,
                                                                 None)
@@ -166,9 +170,13 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
         Usage: .registered
         Example: .registered"""
         users = self._channel_table[event.target].users()
-        for user in users:
+        if users:
+            for user in users:
+                connection.notice(event.source.nick,
+                                  str(user) + " | " + str(users[user]))
+        else:
             connection.notice(event.source.nick,
-                              str(user) + " | " + str(users[user]))
+                              "There are currently no registered users.")
 
     def do_pub_help(self, connection, event):
         """Send a help message to the user who requested it.
