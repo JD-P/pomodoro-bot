@@ -439,7 +439,8 @@ try:
     os.chdir("work_logs/")
 except FileNotFoundError:
     os.mkdir("work_logs/")
-
+    os.chdir("work_logs/")
+    
 bot = PomodoroBot(arguments.controller_nick,
                   arguments.bot_nick,
                   arguments.server_address,
