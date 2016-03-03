@@ -2,9 +2,15 @@ import irc.bot
 import irc.strings
 from irc.client import is_channel
 from collections import namedtuple
+from threading import Thread
+import os
 import time
+import json
 import argparse
 from inspect import getdoc
+from http.server import HTTPServer
+from http.server import SimpleHTTPRequestHandler
+
 
 class PomodoroBot(irc.bot.SingleServerIRCBot):
     """The pomodoro bot sits in a channel and waits for someone to start a pomodoro.
@@ -18,10 +24,12 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
 
     The bot also keeps a table of all the users which are doing the current 
     pomodoro and what they're working on."""
-    def __init__(self, control_nick, nickname, server, port=6667):
+    def __init__(self, control_nick, nickname, server, ip_address, port=6667):
         irc.bot.SingleServerIRCBot.__init__(self, [(server, port)], nickname, nickname)
         self._controller = control_nick
         self._channel_table = {}
+        self._ip_address = ip_address
+        self._logbook = WorkLogbook()
 
     def on_privmsg(self, connection, event):
         """Allow the bot controller to message PomodoroBot."""
@@ -155,6 +163,10 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
             except IndexError:
                 self._channel_table[event.target].register_nick(event.source.nick,
                                                                 None)
+            self._logbook.log_session(event.source.nick,
+                                      self._channel_table[event.target].mode,
+                                      goal)
+            self._logbook.save_one(event.source.nick)
             connection.notice(event.source.nick,
                               "You have registered for the next session.")
         else:
@@ -177,6 +189,15 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
         else:
             connection.notice(event.source.nick,
                               "There are currently no registered users.")
+
+    def do_pub_export(self, connection, event):
+        """Export a log of your work sessions to a JSON format.
+
+        Usage: .export
+        Example: .export"""
+        connection.notice(event.source.nick,
+                          self._ip_address + ":12000/" + event.source.nick +
+                          ".json")
 
     def do_pub_help(self, connection, event):
         """Send a help message to the user who requested it.
@@ -209,8 +230,6 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
             for line in help_msg:
                 connection.notice(event.source.nick,
                                   line)
-            
-        
         
 class Pomodoro():
     """Pomodoro channel data structure. Keeps track of who is currently 
@@ -222,7 +241,8 @@ class Pomodoro():
         self._pomodoro_session = False
         self._votes = {}
         self._modes = {"fast":(25,5), "long":(50,10), "lazy":(45,15), "test":(1,1)}
-
+        self.mode = None
+        
     def initialize_pomodoro(self, mode, delay=300):
         """Begin a registration period for a new pomodoro with the mode <mode>, 
         mode is one of:
@@ -230,10 +250,10 @@ class Pomodoro():
         Fast: A 25-5 minutes worked/break time split.
         Long: A 50-10 minutes worked/break time split.
         Lazy: A 45/15 minutes worked/break time split."""
-        mode = mode.lower()
+        self.mode = mode.lower()
         self._pomodoro_session = "work"
         self._votes = {}
-        self._connection.execute_delayed(delay, self.pomodoro_start, (mode,))
+        self._connection.execute_delayed(delay, self.pomodoro_start, (self.mode,))
         
     def pomodoro_start(self, mode):
         """Start a pomodoro session with the mode <mode>, mode is one of:
@@ -337,16 +357,100 @@ class Pomodoro():
         def __str__(self):
             return repr(self._nickname)
         
-        
+class WorkLogbook():
+    """Data structure representing the work logbook for pomodoro sessions.
+
+    Each user of the bot's sessions are stored in a JSON log file which is 
+    updated every time they register for a session. For each session the datetime,
+    type of pomodoro, and goal registered with are recorded."""
+    def __init__(self):
+        self._session_tuple = namedtuple("Session", ['datetime', 'type', 'goal'])
+        self._logbook = {}
+        self.load()
+
+    def log_session(self, nick, type, goal):
+        """Log a work session for a given nick.
+
+        For each session the datetime, type of pomodoro, and goal registered 
+        with are recorded."""
+        datetime = self._iso_8601()
+        if nick.lower() in self._logbook:
+            self._logbook[nick.lower()].append(self._session_tuple(datetime,
+                                                                   type, goal))
+        else:
+            self._logbook[nick.lower()] = []
+            self._logbook[nick.lower()].append(self._session_tuple(datetime,
+                                                                   type,goal))
+        return True
+
+    def _iso_8601(self):
+        """Return an ISO 8601 datetime in UTC."""
+        return time.strftime("%Y-%m-%dT%H-%M-%SZ", time.gmtime())
+
+    def save_all(self):
+        """Save the WorkLogbook to disk.
+
+        The WorkLogbook is saved to disk in a JSON format. Each nick's log is
+        stored in a seperate file."""
+        for nick in self._logbook:
+            self.save_one(nick)
+        return True
+
+    def save_one(self, nick):
+        """Save the WorkLogbook entries for a given nick to disk."""
+        outfile = open(nick + ".json", "w")
+        json.dump(self._logbook[nick], outfile)
+        outfile.close()
+        return True
+
+    def load(self):
+        """Load the WorkLogbook from disk.
+
+        The Worklogbook is saved to disk in a JSON format. Each nick's log is 
+        stored in a seperate file."""
+        filenames = os.listdir()
+        for filename in filenames:
+            nick = filename.split(".")[0]
+            infile = open(filename)
+            sessions = json.load(infile)
+            infile.close()
+            named_tuples = []
+            for session in sessions:
+                named_tuples.append(
+                    self._session_tuple(session[0],
+                                        session[1],
+                                        session[2]))
+            self._logbook[nick] = named_tuples
+        return True
+    
 parser = argparse.ArgumentParser()
-parser.add_argument("controller_nick")
-parser.add_argument("bot_nick")
-parser.add_argument("server_address")
-parser.add_argument("-p", "--port", default=6667)
+parser.add_argument("controller_nick",
+                    help="The nickname of the user that controls the bot.")
+parser.add_argument("bot_nick",
+                    help="The nickname of the bot.")
+parser.add_argument("server_address",
+                    help="The address of the server to connect to.")
+parser.add_argument("ip_address",
+                    help="The IP address of the server running the bot.")
+parser.add_argument("-p", "--port", type=int, default=6667)
 arguments = parser.parse_args()
+
+try:
+    os.chdir("work_logs/")
+except FileNotFoundError:
+    os.mkdir("work_logs/")
 
 bot = PomodoroBot(arguments.controller_nick,
                   arguments.bot_nick,
                   arguments.server_address,
+                  arguments.ip_address,
                   arguments.port)
-bot.start()
+
+bot_thread = Thread(target=bot.start,
+                    daemon=False)
+bot_thread.start()
+    
+httpd = HTTPServer(('', 12000), SimpleHTTPRequestHandler)
+httpd_thread = Thread(target=httpd.serve_forever,
+                      daemon=False)
+httpd_thread.start()
