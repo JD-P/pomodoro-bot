@@ -94,7 +94,7 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
         Example: .pomodoro fast"""
         arguments = event.arguments[0].split()
         try:
-            mode = arguments[1]
+            mode = arguments[1].lower()
         except IndexError:
             connection.notice(event.source.nick,
                               "Usage: pomodoro <mode>, where mode is one of"
