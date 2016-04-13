@@ -326,7 +326,10 @@ class Pomodoro():
 
     def vote(self, mode, nickname):
         """Vote to change the mode to a different mode."""
-        self._votes[mode].add(nickname)
+        if mode in self._votes:
+            self._votes[mode].add(nickname)
+        else:
+            self._votes[mode] = set((nickname,))
         
     def votes(self):
         """Return the vote tallies for changing the mode."""
