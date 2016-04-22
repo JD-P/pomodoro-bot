@@ -24,15 +24,20 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
 
     The bot also keeps a table of all the users which are doing the current 
     pomodoro and what they're working on."""
-    def __init__(self, control_nick, nickname, server, ip_address, port=6667):
+    def __init__(self, control_nick, nickname, server, ip_address, port=6667, log=False):
         irc.bot.SingleServerIRCBot.__init__(self, [(server, port)], nickname, nickname)
         self._controller = control_nick
         self._channel_table = {}
         self._ip_address = ip_address
         self._logbook = WorkLogbook()
+        self._log = log
 
     def on_privmsg(self, connection, event):
         """Allow the bot controller to message PomodoroBot."""
+        if self._log:
+            self._log.write('\t'.join([str(time.time()), "privmsg", 
+                                       event.source.nick, event.arguments[0], "\n"])) 
+            self._log.flush()
         if event.source.nick != self._controller:
             print("You cannot send private commands to",
                   connection.get_nickname() + ".")
@@ -70,9 +75,17 @@ class PomodoroBot(irc.bot.SingleServerIRCBot):
             usage_msg = "Usage: part <channel> Example: part #test"
             connection.notice(event.source.nick, usage_msg)
 
+    def do_quit(self, connection, event):
+        """Quit the bot program at the bot controllers command."""
+        quit()
+
     def on_pubmsg(self, connection, event):
         """Parse messages sent into a channel PomodoroBot is in for commands.
         If a command is found execute it."""
+        if self._log:
+            self._log.write('\t'.join([str(time.time()), "pubmsg", 
+                                       event.source.nick, event.arguments[0], "\n"]))
+            self._log.flush()
         arguments = event.arguments[0].split()
         try:
             if hasattr(self, "do_pub_" + arguments[0].strip(".")):
@@ -436,6 +449,8 @@ parser.add_argument("server_address",
 parser.add_argument("ip_address",
                     help="The IP address of the server running the bot.")
 parser.add_argument("-p", "--port", type=int, default=6667)
+parser.add_argument("--log", type=argparse.FileType('w'),
+                    help="Write out an input recording to the given filepath.")
 arguments = parser.parse_args()
 
 try:
@@ -448,7 +463,8 @@ bot = PomodoroBot(arguments.controller_nick,
                   arguments.bot_nick,
                   arguments.server_address,
                   arguments.ip_address,
-                  arguments.port)
+                  arguments.port,
+                  arguments.log)
 
 bot_thread = Thread(target=bot.start,
                     daemon=False)
